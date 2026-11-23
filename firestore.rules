@@ -1,0 +1,704 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net: Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Core Primitives ---
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidEmailKey(emailKey) {
+      return emailKey is string && emailKey.size() >= 3 && emailKey.size() <= 180;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isBootstrappedSuperAdmin() {
+      return isSignedIn() && request.auth.token.email == 'cimentq@gmail.com';
+    }
+
+    function memberDoc(uid) {
+      return get(/databases/$(database)/documents/members/$(uid));
+    }
+
+    function hasActiveMemberDoc(uid) {
+      return exists(/databases/$(database)/documents/members/$(uid))
+        && memberDoc(uid).data.active == true;
+    }
+
+    function isSuperAdmin() {
+      return isBootstrappedSuperAdmin()
+        || (isSignedIn() && hasActiveMemberDoc(request.auth.uid)
+            && memberDoc(request.auth.uid).data.role == 'super_admin');
+    }
+
+    function isPatron() {
+      return isSuperAdmin()
+        || (isSignedIn() && hasActiveMemberDoc(request.auth.uid)
+            && memberDoc(request.auth.uid).data.role == 'admin_patron');
+    }
+
+    function isStaff() {
+      return isSuperAdmin()
+        || (isSignedIn() && hasActiveMemberDoc(request.auth.uid)
+            && memberDoc(request.auth.uid).data.role in [
+              'super_admin',
+              'admin_patron',
+              'caisse',
+              'chargeur',
+              'chauffeur',
+              'gerant_boisson',
+              'gerant_ciment'
+            ]);
+    }
+
+    function isCaisse() {
+      return isPatron()
+        || (isSignedIn() && hasActiveMemberDoc(request.auth.uid)
+            && memberDoc(request.auth.uid).data.role == 'caisse');
+    }
+
+    function isGerantCiment() {
+      return isPatron()
+        || (isSignedIn() && hasActiveMemberDoc(request.auth.uid)
+            && memberDoc(request.auth.uid).data.role == 'gerant_ciment');
+    }
+
+    function isGerantBoisson() {
+      return isPatron()
+        || (isSignedIn() && hasActiveMemberDoc(request.auth.uid)
+            && memberDoc(request.auth.uid).data.role == 'gerant_boisson');
+    }
+
+    function isLogistics() {
+      return isPatron()
+        || (isSignedIn() && hasActiveMemberDoc(request.auth.uid)
+            && memberDoc(request.auth.uid).data.role in ['chargeur', 'chauffeur', 'caisse']);
+    }
+
+    // --- Validation Blueprints ---
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'role', 'active', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'role', 'active', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120
+        && data.role in ['super_admin', 'admin_patron', 'caisse', 'chargeur', 'chauffeur', 'gerant_boisson', 'gerant_ciment', 'client']
+        && data.active is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivateInfo(data) {
+      return data.keys().hasAll(['uid', 'email', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'phone', 'updatedAt'])
+        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128
+        && data.email is string && data.email.size() <= 180
+        && (!data.keys().hasAny(['phone']) || (data.phone is string && data.phone.size() <= 40))
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMember(data) {
+      return data.keys().hasAll(['id', 'fullName', 'role', 'active', 'assignedByUid', 'staffViewerUids', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'uid', 'fullName', 'email', 'phone', 'role', 'active', 'assignedByUid', 'staffViewerUids', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id.size() >= 1 && data.id.size() <= 128
+        && (!data.keys().hasAny(['uid']) || (data.uid is string && data.uid.size() <= 128))
+        && data.fullName is string && data.fullName.size() >= 2 && data.fullName.size() <= 120
+        && (!data.keys().hasAny(['email']) || (data.email is string && data.email.size() <= 180))
+        && (!data.keys().hasAny(['phone']) || (data.phone is string && data.phone.size() <= 40))
+        && data.role in ['super_admin', 'admin_patron', 'caisse', 'chargeur', 'chauffeur', 'gerant_boisson', 'gerant_ciment']
+        && data.active is bool
+        && data.assignedByUid is string && data.assignedByUid.size() >= 1 && data.assignedByUid.size() <= 128
+        && data.staffViewerUids is list && data.staffViewerUids.size() <= 30
+        && (data.staffViewerUids.size() == 0 || data.staffViewerUids[0] is string)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMemberInvite(data) {
+      return data.keys().hasAll(['email', 'fullName', 'role', 'active', 'memberId', 'assignedByUid', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['email', 'fullName', 'phone', 'role', 'active', 'memberId', 'assignedByUid', 'createdAt', 'updatedAt'])
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 180
+        && data.fullName is string && data.fullName.size() >= 2 && data.fullName.size() <= 120
+        && (!data.keys().hasAny(['phone']) || (data.phone is string && data.phone.size() <= 40))
+        && data.role in ['super_admin', 'admin_patron', 'caisse', 'chargeur', 'chauffeur', 'gerant_boisson', 'gerant_ciment']
+        && data.active is bool
+        && data.memberId is string && data.memberId.size() >= 1 && data.memberId.size() <= 128
+        && data.assignedByUid is string && data.assignedByUid.size() >= 1 && data.assignedByUid.size() <= 128
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidProduct(data) {
+      return data.keys().hasAll([
+          'id', 'pole', 'category', 'name', 'unitLabel',
+          'priceFcfa', 'wholesalePriceFcfa', 'wholesaleMinQty',
+          'stockQty', 'inStock', 'priorityScore', 'orderCount',
+          'outflowQty', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'barcode', 'pole', 'category', 'name', 'unitLabel',
+          'priceFcfa', 'wholesalePriceFcfa', 'wholesaleMinQty',
+          'purchaseCostFcfa', 'targetMarginPct',
+          'stockQty', 'criticalStockThreshold', 'inStock', 'priorityScore', 'orderCount',
+          'outflowQty', 'description', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id.size() >= 1 && data.id.size() <= 128
+        && (!data.keys().hasAny(['barcode']) || (data.barcode is string && data.barcode.size() <= 64))
+        && data.pole in ['ciment', 'quincaillerie', 'boissons']
+        && data.category is string && data.category.size() >= 1 && data.category.size() <= 100
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 160
+        && data.unitLabel is string && data.unitLabel.size() >= 1 && data.unitLabel.size() <= 80
+        && data.priceFcfa is number && data.priceFcfa >= 0
+        && data.wholesalePriceFcfa is number && data.wholesalePriceFcfa >= 0
+        && data.wholesaleMinQty is number && data.wholesaleMinQty >= 1
+        && (!data.keys().hasAny(['purchaseCostFcfa']) || (data.purchaseCostFcfa is number && data.purchaseCostFcfa >= 0))
+        && (!data.keys().hasAny(['targetMarginPct']) || (data.targetMarginPct is number && data.targetMarginPct >= 0 && data.targetMarginPct <= 500))
+        && data.stockQty is number && data.stockQty >= 0
+        && (!data.keys().hasAny(['criticalStockThreshold']) || (data.criticalStockThreshold is number && data.criticalStockThreshold >= 0))
+        && data.inStock is bool
+        && data.priorityScore is number && data.priorityScore >= 0 && data.priorityScore <= 100
+        && data.orderCount is number && data.orderCount >= 0
+        && data.outflowQty is number && data.outflowQty >= 0
+        && (!data.keys().hasAny(['description']) || (data.description is string && data.description.size() <= 600))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidInvoice(data) {
+      return data.keys().hasAll([
+          'id', 'docType', 'code', 'customerName', 'deliveryMode',
+          'paymentMethod', 'status', 'discountFcfa', 'deliveryFeeFcfa',
+          'cimentQuincaillerieSubtotal', 'boissonsSubtotal', 'totalFcfa',
+          'createdByUid', 'createdByName', 'staffReaderUids', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'docType', 'code', 'customerName', 'customerPhone',
+          'customerAddress', 'deliveryMode', 'paymentMethod', 'status',
+          'discountFcfa', 'deliveryFeeFcfa', 'cimentQuincaillerieSubtotal',
+          'boissonsSubtotal', 'totalFcfa', 'notes', 'createdByUid',
+          'createdByName', 'assignedLoaderName', 'assignedDriverName',
+          'staffReaderUids', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id.size() >= 1 && data.id.size() <= 128
+        && data.docType in ['facture', 'devis']
+        && data.code is string && data.code.size() >= 3 && data.code.size() <= 40
+        && data.customerName is string && data.customerName.size() >= 1 && data.customerName.size() <= 140
+        && (!data.keys().hasAny(['customerPhone']) || (data.customerPhone is string && data.customerPhone.size() <= 40))
+        && (!data.keys().hasAny(['customerAddress']) || (data.customerAddress is string && data.customerAddress.size() <= 240))
+        && data.deliveryMode in ['retrait_magasin', 'livraison_locale']
+        && data.paymentMethod in ['especes', 'orange_money', 'wave', 'mtn_momo']
+        && data.status in ['brouillon', 'en_attente', 'en_preparation', 'prete_livree', 'payee', 'annulee']
+        && data.discountFcfa is number && data.discountFcfa >= 0
+        && data.deliveryFeeFcfa is number && data.deliveryFeeFcfa >= 0
+        && data.cimentQuincaillerieSubtotal is number && data.cimentQuincaillerieSubtotal >= 0
+        && data.boissonsSubtotal is number && data.boissonsSubtotal >= 0
+        && data.totalFcfa is number && data.totalFcfa >= 0
+        && (!data.keys().hasAny(['notes']) || (data.notes is string && data.notes.size() <= 500))
+        && data.createdByUid is string && data.createdByUid.size() >= 1 && data.createdByUid.size() <= 128
+        && data.createdByName is string && data.createdByName.size() >= 1 && data.createdByName.size() <= 120
+        && (!data.keys().hasAny(['assignedLoaderName']) || (data.assignedLoaderName is string && data.assignedLoaderName.size() <= 120))
+        && (!data.keys().hasAny(['assignedDriverName']) || (data.assignedDriverName is string && data.assignedDriverName.size() <= 120))
+        && data.staffReaderUids is list && data.staffReaderUids.size() <= 30
+        && (data.staffReaderUids.size() == 0 || data.staffReaderUids[0] is string)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidInvoiceLineItem(data) {
+      return data.keys().hasAll([
+          'id', 'productId', 'pole', 'name', 'unitLabel',
+          'quantity', 'appliedUnitPrice', 'isWholesale', 'lineTotal',
+          'createdByUid', 'staffReaderUids'
+        ])
+        && data.keys().hasOnly([
+          'id', 'productId', 'pole', 'name', 'unitLabel',
+          'quantity', 'appliedUnitPrice', 'isWholesale', 'lineTotal',
+          'createdByUid', 'staffReaderUids'
+        ])
+        && data.id is string && data.id.size() >= 1 && data.id.size() <= 128
+        && data.productId is string && data.productId.size() >= 1 && data.productId.size() <= 128
+        && data.pole in ['ciment', 'quincaillerie', 'boissons']
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 160
+        && data.unitLabel is string && data.unitLabel.size() >= 1 && data.unitLabel.size() <= 80
+        && data.quantity is number && data.quantity >= 1
+        && data.appliedUnitPrice is number && data.appliedUnitPrice >= 0
+        && data.isWholesale is bool
+        && data.lineTotal is number && data.lineTotal >= 0
+        && data.createdByUid is string && data.createdByUid.size() >= 1 && data.createdByUid.size() <= 128
+        && data.staffReaderUids is list && data.staffReaderUids.size() <= 30
+        && (data.staffReaderUids.size() == 0 || data.staffReaderUids[0] is string);
+    }
+
+    function isValidConversation(data) {
+      return data.keys().hasAll([
+          'id', 'title', 'type', 'isTeamChannel',
+          'participantUids', 'createdByUid', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'title', 'type', 'isTeamChannel', 'participantUids',
+          'lastMessageText', 'lastSenderName', 'createdByUid',
+          'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id.size() >= 1 && data.id.size() <= 128
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 140
+        && data.type in ['groupe', 'direct']
+        && data.isTeamChannel is bool
+        && data.participantUids is list && data.participantUids.size() >= 1 && data.participantUids.size() <= 30
+        && data.participantUids[0] is string
+        && (!data.keys().hasAny(['lastMessageText']) || (data.lastMessageText is string && data.lastMessageText.size() <= 300))
+        && (!data.keys().hasAny(['lastSenderName']) || (data.lastSenderName is string && data.lastSenderName.size() <= 120))
+        && data.createdByUid is string && data.createdByUid.size() >= 1 && data.createdByUid.size() <= 128
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidChatMessage(data) {
+      return data.keys().hasAll(['id', 'senderUid', 'senderName', 'senderRole', 'text', 'participantUids', 'createdAt'])
+        && data.keys().hasOnly(['id', 'senderUid', 'senderName', 'senderRole', 'text', 'participantUids', 'createdAt'])
+        && data.id is string && data.id.size() >= 1 && data.id.size() <= 128
+        && data.senderUid is string && data.senderUid.size() >= 1 && data.senderUid.size() <= 128
+        && data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 120
+        && data.senderRole is string && data.senderRole.size() >= 1 && data.senderRole.size() <= 40
+        && data.text is string && data.text.size() >= 1 && data.text.size() <= 1500
+        && data.participantUids is list && data.participantUids.size() >= 1 && data.participantUids.size() <= 30
+        && data.participantUids[0] is string
+        && data.createdAt is timestamp;
+    }
+
+    function isValidStoreConfig(data) {
+      return data.keys().hasAll(['companyName', 'brandAcronym', 'updatedAt'])
+        && data.keys().hasOnly([
+          'companyName', 'brandAcronym', 'tagline', 'location',
+          'closingSlogan', 'phones', 'hardware', 'beverages',
+          'commitments', 'hoursWeekdays', 'hoursSaturday', 'hoursSunday',
+          'currencyLabel', 'deliveryFeeFcfa', 'freeDeliveryThresholdFcfa',
+          'whatsappPhone', 'email', 'acceptedPayments', 'theme',
+          'defaultModel', 'defaultFormat', 'updatedAt'
+        ])
+        && data.companyName is string && data.companyName.size() >= 1 && data.companyName.size() <= 120
+        && data.brandAcronym is string && data.brandAcronym.size() >= 1 && data.brandAcronym.size() <= 20
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll(['id', 'actorUid', 'actorName', 'actorRole', 'action', 'createdAt'])
+        && data.keys().hasOnly(['id', 'actorUid', 'actorName', 'actorRole', 'action', 'targetLabel', 'createdAt'])
+        && data.id is string && data.id.size() >= 1 && data.id.size() <= 128
+        && data.actorUid is string && data.actorUid.size() >= 1 && data.actorUid.size() <= 128
+        && data.actorName is string && data.actorName.size() >= 1 && data.actorName.size() <= 120
+        && data.actorRole is string && data.actorRole.size() >= 1 && data.actorRole.size() <= 40
+        && data.action is string && data.action.size() >= 1 && data.action.size() <= 160
+        && (!data.keys().hasAny(['targetLabel']) || (data.targetLabel is string && data.targetLabel.size() <= 200))
+        && data.createdAt is timestamp;
+    }
+
+    function isValidPurchaseOrder(data) {
+      return data.keys().hasAll([
+          'id', 'code', 'poleScope', 'supplierName', 'status',
+          'totalEstimatedFcfa', 'createdByUid', 'createdByName',
+          'staffReaderUids', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'code', 'poleScope', 'supplierName', 'supplierPhone',
+          'supplierAddress', 'expectedDeliveryDate', 'status',
+          'totalEstimatedFcfa', 'notes', 'createdByUid', 'createdByName',
+          'staffReaderUids', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id.size() >= 1 && data.id.size() <= 128
+        && data.code is string && data.code.size() >= 3 && data.code.size() <= 40
+        && data.poleScope in ['ciment', 'quincaillerie', 'boissons', 'mixte']
+        && data.supplierName is string && data.supplierName.size() >= 1 && data.supplierName.size() <= 140
+        && (!data.keys().hasAny(['supplierPhone']) || (data.supplierPhone is string && data.supplierPhone.size() <= 40))
+        && (!data.keys().hasAny(['supplierAddress']) || (data.supplierAddress is string && data.supplierAddress.size() <= 240))
+        && (!data.keys().hasAny(['expectedDeliveryDate']) || (data.expectedDeliveryDate is string && data.expectedDeliveryDate.size() <= 20))
+        && data.status in ['brouillon', 'envoye', 'receptionne', 'annule']
+        && data.totalEstimatedFcfa is number && data.totalEstimatedFcfa >= 0
+        && (!data.keys().hasAny(['notes']) || (data.notes is string && data.notes.size() <= 500))
+        && data.createdByUid is string && data.createdByUid.size() >= 1 && data.createdByUid.size() <= 128
+        && data.createdByName is string && data.createdByName.size() >= 1 && data.createdByName.size() <= 120
+        && data.staffReaderUids is list && data.staffReaderUids.size() <= 30
+        && (data.staffReaderUids.size() == 0 || data.staffReaderUids[0] is string)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPurchaseOrderLineItem(data) {
+      return data.keys().hasAll([
+          'id', 'productId', 'pole', 'name', 'unitLabel',
+          'currentStockAtOrder', 'criticalThreshold', 'quantity',
+          'estimatedUnitCostFcfa', 'lineTotalFcfa', 'createdByUid', 'staffReaderUids'
+        ])
+        && data.keys().hasOnly([
+          'id', 'productId', 'pole', 'name', 'unitLabel',
+          'currentStockAtOrder', 'criticalThreshold', 'quantity',
+          'estimatedUnitCostFcfa', 'lineTotalFcfa', 'createdByUid', 'staffReaderUids'
+        ])
+        && data.id is string && data.id.size() >= 1 && data.id.size() <= 128
+        && data.productId is string && data.productId.size() >= 1 && data.productId.size() <= 128
+        && data.pole in ['ciment', 'quincaillerie', 'boissons']
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 160
+        && data.unitLabel is string && data.unitLabel.size() >= 1 && data.unitLabel.size() <= 80
+        && data.currentStockAtOrder is number && data.currentStockAtOrder >= 0
+        && data.criticalThreshold is number && data.criticalThreshold >= 0
+        && data.quantity is number && data.quantity >= 1
+        && data.estimatedUnitCostFcfa is number && data.estimatedUnitCostFcfa >= 0
+        && data.lineTotalFcfa is number && data.lineTotalFcfa >= 0
+        && data.createdByUid is string && data.createdByUid.size() >= 1 && data.createdByUid.size() <= 128
+        && data.staffReaderUids is list && data.staffReaderUids.size() <= 30
+        && (data.staffReaderUids.size() == 0 || data.staffReaderUids[0] is string);
+    }
+
+    // --- Collection Rules ---
+
+    // Users (Public operational metadata) & Private Info (PII)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isStaff());
+      allow list: if isSignedIn() && (isBootstrappedSuperAdmin() || resource.data.uid == request.auth.uid);
+      allow create: if isValidId(userId)
+        && isValidUserProfile(incoming())
+        && incoming().uid == userId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin()
+          || (isOwner(userId) && incoming().active == true && (
+            incoming().role == 'client'
+            || (hasActiveMemberDoc(userId) && memberDoc(userId).data.role == incoming().role)
+          ))
+        );
+      allow update: if isValidId(userId)
+        && isValidUserProfile(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin()
+          || (isOwner(userId)
+              && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'role', 'updatedAt'])
+              && (
+                incoming().role == existing().role
+                || (hasActiveMemberDoc(userId) && memberDoc(userId).data.role == incoming().role)
+              ))
+        );
+      allow delete: if isValidId(userId) && isSuperAdmin();
+
+      match /private/{docId} {
+        allow get: if isValidId(userId) && docId == 'info' && (isOwner(userId) || isSuperAdmin());
+        allow create: if isValidId(userId) && docId == 'info'
+          && isValidUserPrivateInfo(incoming())
+          && (isOwner(userId) || isSuperAdmin())
+          && incoming().uid == userId
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && docId == 'info'
+          && isValidUserPrivateInfo(incoming())
+          && (isOwner(userId) || isSuperAdmin())
+          && incoming().uid == existing().uid
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'phone', 'updatedAt']);
+        allow delete: if isValidId(userId) && docId == 'info' && isSuperAdmin();
+      }
+    }
+
+    // Pre-registered Worker & Admin Invites keyed by lowercase email
+    match /memberInvites/{emailKey} {
+      allow get: if isValidEmailKey(emailKey)
+        && isSignedIn()
+        && (request.auth.token.email == emailKey || request.auth.token.email.lower() == emailKey || isPatron());
+      allow list: if isBootstrappedSuperAdmin();
+      allow create, update: if isValidEmailKey(emailKey)
+        && isValidMemberInvite(incoming())
+        && incoming().email == emailKey
+        && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin()
+          || (isPatron() && incoming().role in ['caisse', 'chargeur', 'chauffeur', 'gerant_boisson', 'gerant_ciment'])
+        );
+      allow delete: if isValidEmailKey(emailKey) && isPatron();
+    }
+
+    // Members / Employees & Admins Registry (managed by Patron & Super Admin)
+    match /members/{memberId} {
+      allow get: if isValidId(memberId) && (isStaff() || isOwner(memberId));
+      allow list: if isSignedIn() && (
+        isBootstrappedSuperAdmin()
+        || resource.data.uid == request.auth.uid
+        || resource.data.assignedByUid == request.auth.uid
+        || request.auth.uid in resource.data.staffViewerUids
+      );
+      allow create: if isValidId(memberId)
+        && isValidMember(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin()
+          || (isPatron()
+              && incoming().assignedByUid == request.auth.uid
+              && incoming().role in ['caisse', 'chargeur', 'chauffeur', 'gerant_boisson', 'gerant_ciment'])
+          || (isOwner(memberId)
+              && incoming().uid == request.auth.uid
+              && exists(/databases/$(database)/documents/memberInvites/$(request.auth.token.email.lower()))
+              && get(/databases/$(database)/documents/memberInvites/$(request.auth.token.email.lower())).data.active == true
+              && get(/databases/$(database)/documents/memberInvites/$(request.auth.token.email.lower())).data.role == incoming().role)
+        );
+      allow update: if isValidId(memberId)
+        && isValidMember(incoming())
+        && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin()
+          || (isPatron()
+              && existing().role != 'super_admin'
+              && existing().role != 'admin_patron'
+              && incoming().role in ['caisse', 'chargeur', 'chauffeur', 'gerant_boisson', 'gerant_ciment']
+              && incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'email', 'phone', 'role', 'active', 'uid', 'staffViewerUids', 'updatedAt']))
+        );
+      allow delete: if isValidId(memberId)
+        && (
+          isSuperAdmin()
+          || (isPatron() && existing().role in ['caisse', 'chargeur', 'chauffeur', 'gerant_boisson', 'gerant_ciment'])
+        );
+    }
+
+    // Products (Separated by pole: ciment, quincaillerie, boissons)
+    match /products/{productId} {
+      allow get: if isValidId(productId);
+      allow list: if resource.data.pole in ['ciment', 'quincaillerie', 'boissons'];
+      allow create: if isValidId(productId)
+        && isValidProduct(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          isPatron()
+          || (isGerantCiment() && incoming().pole in ['ciment', 'quincaillerie'])
+          || (isGerantBoisson() && incoming().pole == 'boissons')
+        );
+      allow update: if isValidId(productId)
+        && isValidProduct(incoming())
+        && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isPatron()
+          || (isGerantCiment()
+              && existing().pole in ['ciment', 'quincaillerie']
+              && incoming().pole in ['ciment', 'quincaillerie']
+              && incoming().diff(existing()).affectedKeys().hasOnly([
+                'name', 'barcode', 'category', 'unitLabel', 'priceFcfa', 'wholesalePriceFcfa',
+                'wholesaleMinQty', 'purchaseCostFcfa', 'targetMarginPct',
+                'stockQty', 'criticalStockThreshold', 'inStock', 'priorityScore',
+                'orderCount', 'outflowQty', 'description', 'updatedAt'
+              ]))
+          || (isGerantBoisson()
+              && existing().pole == 'boissons'
+              && incoming().pole == 'boissons'
+              && incoming().diff(existing()).affectedKeys().hasOnly([
+                'name', 'barcode', 'category', 'unitLabel', 'priceFcfa', 'wholesalePriceFcfa',
+                'wholesaleMinQty', 'purchaseCostFcfa', 'targetMarginPct',
+                'stockQty', 'criticalStockThreshold', 'inStock', 'priorityScore',
+                'orderCount', 'outflowQty', 'description', 'updatedAt'
+              ]))
+          || (isCaisse()
+              && incoming().diff(existing()).affectedKeys().hasOnly(['stockQty', 'inStock', 'orderCount', 'outflowQty', 'updatedAt']))
+        );
+      allow delete: if isValidId(productId)
+        && (
+          isPatron()
+          || (isGerantCiment() && existing().pole in ['ciment', 'quincaillerie'])
+          || (isGerantBoisson() && existing().pole == 'boissons')
+        );
+    }
+
+    // Invoices & Quotes (Factures & Devis)
+    match /invoices/{invoiceId} {
+      allow get: if isValidId(invoiceId)
+        && isSignedIn()
+        && (existing().createdByUid == request.auth.uid || isStaff());
+      allow list: if isSignedIn()
+        && (
+          isBootstrappedSuperAdmin()
+          || resource.data.createdByUid == request.auth.uid
+          || request.auth.uid in resource.data.staffReaderUids
+        );
+      allow create: if isValidId(invoiceId)
+        && isSignedIn()
+        && isValidInvoice(incoming())
+        && incoming().createdByUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          isCaisse()
+          || (incoming().docType == 'devis' && incoming().status == 'en_attente' && incoming().discountFcfa == 0)
+        );
+      allow update: if isValidId(invoiceId)
+        && isSignedIn()
+        && isValidInvoice(incoming())
+        && incoming().id == existing().id
+        && incoming().createdByUid == existing().createdByUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin()
+          || isPatron()
+          || (isCaisse() && !(existing().status in ['payee', 'annulee']))
+          || (isLogistics()
+              && !(existing().status in ['payee', 'annulee'])
+              && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'assignedLoaderName', 'assignedDriverName', 'updatedAt']))
+        );
+      allow delete: if isValidId(invoiceId) && isCaisse();
+
+      match /items/{itemId} {
+        allow get: if isValidId(invoiceId) && isValidId(itemId) && isSignedIn()
+          && (get(/databases/$(database)/documents/invoices/$(invoiceId)).data.createdByUid == request.auth.uid || isStaff());
+        allow list: if isValidId(invoiceId) && isSignedIn()
+          && (isBootstrappedSuperAdmin() || resource.data.createdByUid == request.auth.uid || request.auth.uid in resource.data.staffReaderUids);
+        allow create: if isValidId(invoiceId) && isValidId(itemId) && isSignedIn()
+          && isValidInvoiceLineItem(incoming())
+          && incoming().createdByUid == request.auth.uid
+          && (isCaisse() || getAfter(/databases/$(database)/documents/invoices/$(invoiceId)).data.createdByUid == request.auth.uid);
+        allow update: if isValidId(invoiceId) && isValidId(itemId) && isCaisse()
+          && isValidInvoiceLineItem(incoming());
+        allow delete: if isValidId(invoiceId) && isValidId(itemId) && isCaisse();
+      }
+    }
+
+    // Supplier Purchase Orders (Bons de commande fournisseurs)
+    match /purchaseOrders/{purchaseOrderId} {
+      allow get: if isValidId(purchaseOrderId)
+        && isSignedIn()
+        && (existing().createdByUid == request.auth.uid || isPatron() || isGerantCiment() || isGerantBoisson());
+      allow list: if isSignedIn()
+        && (
+          isBootstrappedSuperAdmin()
+          || resource.data.createdByUid == request.auth.uid
+          || request.auth.uid in resource.data.staffReaderUids
+        );
+      allow create: if isValidId(purchaseOrderId)
+        && isSignedIn()
+        && isValidPurchaseOrder(incoming())
+        && incoming().createdByUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (isPatron() || isGerantCiment() || isGerantBoisson());
+      allow update: if isValidId(purchaseOrderId)
+        && isSignedIn()
+        && isValidPurchaseOrder(incoming())
+        && incoming().id == existing().id
+        && incoming().createdByUid == existing().createdByUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin()
+          || isPatron()
+          || ((isGerantCiment() || isGerantBoisson()) && !(existing().status in ['receptionne', 'annule']))
+        );
+      allow delete: if isValidId(purchaseOrderId) && isPatron();
+
+      match /items/{itemId} {
+        allow get: if isValidId(purchaseOrderId) && isValidId(itemId) && isSignedIn()
+          && (
+            get(/databases/$(database)/documents/purchaseOrders/$(purchaseOrderId)).data.createdByUid == request.auth.uid
+            || isPatron()
+            || isGerantCiment()
+            || isGerantBoisson()
+          );
+        allow list: if isValidId(purchaseOrderId) && isSignedIn()
+          && (isBootstrappedSuperAdmin() || resource.data.createdByUid == request.auth.uid || request.auth.uid in resource.data.staffReaderUids);
+        allow create: if isValidId(purchaseOrderId) && isValidId(itemId) && isSignedIn()
+          && isValidPurchaseOrderLineItem(incoming())
+          && incoming().createdByUid == request.auth.uid
+          && (isPatron() || isGerantCiment() || isGerantBoisson())
+          && existsAfter(/databases/$(database)/documents/purchaseOrders/$(purchaseOrderId));
+        allow update: if isValidId(purchaseOrderId) && isValidId(itemId) && (isPatron() || isGerantCiment() || isGerantBoisson())
+          && isValidPurchaseOrderLineItem(incoming());
+        allow delete: if isValidId(purchaseOrderId) && isValidId(itemId) && (isPatron() || isGerantCiment() || isGerantBoisson());
+      }
+    }
+
+    // Conversations between users
+    match /conversations/{conversationId} {
+      allow get: if isValidId(conversationId) && isSignedIn()
+        && (isSuperAdmin() || request.auth.uid in existing().participantUids || (existing().isTeamChannel == true && isStaff()));
+      allow list: if isSignedIn()
+        && (isBootstrappedSuperAdmin() || request.auth.uid in resource.data.participantUids);
+      allow create: if isValidId(conversationId) && isSignedIn()
+        && isValidConversation(incoming())
+        && incoming().createdByUid == request.auth.uid
+        && request.auth.uid in incoming().participantUids
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(conversationId) && isSignedIn()
+        && isValidConversation(incoming())
+        && incoming().id == existing().id
+        && incoming().createdByUid == existing().createdByUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin()
+          || ((request.auth.uid in existing().participantUids || (existing().isTeamChannel == true && isStaff()))
+              && incoming().diff(existing()).affectedKeys().hasOnly(['lastMessageText', 'lastSenderName', 'updatedAt', 'participantUids']))
+        );
+      allow delete: if isValidId(conversationId) && isSuperAdmin();
+
+      match /messages/{messageId} {
+        allow get: if isValidId(conversationId) && isValidId(messageId) && isSignedIn()
+          && (isSuperAdmin() || request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantUids);
+        allow list: if isValidId(conversationId) && isSignedIn()
+          && (isBootstrappedSuperAdmin() || request.auth.uid in resource.data.participantUids);
+        allow create: if isValidId(conversationId) && isValidId(messageId) && isSignedIn()
+          && isValidChatMessage(incoming())
+          && incoming().senderUid == request.auth.uid
+          && incoming().createdAt == request.time
+          && exists(/databases/$(database)/documents/conversations/$(conversationId))
+          && (isSuperAdmin() || request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantUids);
+        allow update: if false;
+        allow delete: if isValidId(conversationId) && isValidId(messageId) && isSuperAdmin();
+      }
+    }
+
+    // Settings
+    match /settings/{settingId} {
+      allow get: if isValidId(settingId);
+      allow list: if resource.data.companyName is string;
+      allow create, update: if isValidId(settingId) && isPatron()
+        && isValidStoreConfig(incoming())
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(settingId) && isSuperAdmin();
+    }
+
+    // Audit Logs (Super Admin special oversight)
+    match /auditLogs/{logId} {
+      allow get: if isValidId(logId) && isSuperAdmin();
+      allow list: if isBootstrappedSuperAdmin() || (isSignedIn() && resource.data.actorUid == request.auth.uid);
+      allow create: if isValidId(logId) && isSignedIn()
+        && isValidAuditLog(incoming())
+        && incoming().actorUid == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow update, delete: if false;
+    }
+
+    // Test connection doc (SDK startup validation)
+    match /test/{docId} {
+      allow get: if docId == 'connection';
+    }
+  }
+}

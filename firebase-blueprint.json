@@ -1,0 +1,402 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Public operational profile of an authenticated user",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "role": {
+          "type": "string",
+          "enum": [
+            "super_admin",
+            "admin_patron",
+            "caisse",
+            "chargeur",
+            "chauffeur",
+            "gerant_boisson",
+            "gerant_ciment",
+            "client"
+          ]
+        },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "role", "active", "createdAt", "updatedAt"]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Private PII for a user (email, phone)",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 180 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "updatedAt"]
+    },
+    "Member": {
+      "title": "Member",
+      "description": "Company worker / staff directory entry managed by Patron and Super Admin",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "uid": { "type": "string", "maxLength": 128 },
+        "fullName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "email": { "type": "string", "maxLength": 180 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "role": {
+          "type": "string",
+          "enum": [
+            "super_admin",
+            "admin_patron",
+            "caisse",
+            "chargeur",
+            "chauffeur",
+            "gerant_boisson",
+            "gerant_ciment"
+          ]
+        },
+        "active": { "type": "boolean" },
+        "assignedByUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "staffViewerUids": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "fullName", "role", "active", "assignedByUid", "staffViewerUids", "createdAt", "updatedAt"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Catalog item separated across Ciment, Quincaillerie, and Boissons poles",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "barcode": { "type": "string", "maxLength": 64 },
+        "pole": { "type": "string", "enum": ["ciment", "quincaillerie", "boissons"] },
+        "category": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "unitLabel": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "priceFcfa": { "type": "number" },
+        "wholesalePriceFcfa": { "type": "number" },
+        "wholesaleMinQty": { "type": "number" },
+        "purchaseCostFcfa": { "type": "number" },
+        "targetMarginPct": { "type": "number" },
+        "stockQty": { "type": "number" },
+        "criticalStockThreshold": { "type": "number" },
+        "inStock": { "type": "boolean" },
+        "priorityScore": { "type": "number" },
+        "orderCount": { "type": "number" },
+        "outflowQty": { "type": "number" },
+        "description": { "type": "string", "maxLength": 600 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "pole",
+        "category",
+        "name",
+        "unitLabel",
+        "priceFcfa",
+        "wholesalePriceFcfa",
+        "wholesaleMinQty",
+        "stockQty",
+        "inStock",
+        "priorityScore",
+        "orderCount",
+        "outflowQty",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Invoice": {
+      "title": "Invoice",
+      "description": "Facture or Devis document with separated Ciment/Quincaillerie and Boissons subtotals",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "docType": { "type": "string", "enum": ["facture", "devis"] },
+        "code": { "type": "string", "minLength": 3, "maxLength": 40 },
+        "customerName": { "type": "string", "minLength": 1, "maxLength": 140 },
+        "customerPhone": { "type": "string", "maxLength": 40 },
+        "customerAddress": { "type": "string", "maxLength": 240 },
+        "deliveryMode": { "type": "string", "enum": ["retrait_magasin", "livraison_locale"] },
+        "paymentMethod": { "type": "string", "enum": ["especes", "orange_money", "wave", "mtn_momo"] },
+        "status": {
+          "type": "string",
+          "enum": ["brouillon", "en_attente", "en_preparation", "prete_livree", "payee", "annulee"]
+        },
+        "discountFcfa": { "type": "number" },
+        "deliveryFeeFcfa": { "type": "number" },
+        "cimentQuincaillerieSubtotal": { "type": "number" },
+        "boissonsSubtotal": { "type": "number" },
+        "totalFcfa": { "type": "number" },
+        "notes": { "type": "string", "maxLength": 500 },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "createdByName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "assignedLoaderName": { "type": "string", "maxLength": 120 },
+        "assignedDriverName": { "type": "string", "maxLength": 120 },
+        "staffReaderUids": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "docType",
+        "code",
+        "customerName",
+        "deliveryMode",
+        "paymentMethod",
+        "status",
+        "discountFcfa",
+        "deliveryFeeFcfa",
+        "cimentQuincaillerieSubtotal",
+        "boissonsSubtotal",
+        "totalFcfa",
+        "createdByUid",
+        "createdByName",
+        "staffReaderUids",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "InvoiceLineItem": {
+      "title": "InvoiceLineItem",
+      "description": "Single line item inside an invoice or quote subcollection",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "productId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "pole": { "type": "string", "enum": ["ciment", "quincaillerie", "boissons"] },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "unitLabel": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "quantity": { "type": "number" },
+        "appliedUnitPrice": { "type": "number" },
+        "isWholesale": { "type": "boolean" },
+        "lineTotal": { "type": "number" },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "staffReaderUids": { "type": "array" }
+      },
+      "required": [
+        "id",
+        "productId",
+        "pole",
+        "name",
+        "unitLabel",
+        "quantity",
+        "appliedUnitPrice",
+        "isWholesale",
+        "lineTotal",
+        "createdByUid",
+        "staffReaderUids"
+      ]
+    },
+    "MemberInvite": {
+      "title": "MemberInvite",
+      "description": "Pre-registered worker role invitation keyed by verified email",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "minLength": 3, "maxLength": 180 },
+        "fullName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "role": {
+          "type": "string",
+          "enum": ["super_admin", "admin_patron", "caisse", "chargeur", "chauffeur", "gerant_boisson", "gerant_ciment"]
+        },
+        "active": { "type": "boolean" },
+        "memberId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "assignedByUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "fullName", "role", "active", "memberId", "assignedByUid", "createdAt", "updatedAt"]
+    },
+    "Conversation": {
+      "title": "Conversation",
+      "description": "Internal team or direct user conversation thread",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 140 },
+        "type": { "type": "string", "enum": ["groupe", "direct"] },
+        "isTeamChannel": { "type": "boolean" },
+        "participantUids": { "type": "array" },
+        "lastMessageText": { "type": "string", "maxLength": 300 },
+        "lastSenderName": { "type": "string", "maxLength": 120 },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "type", "isTeamChannel", "participantUids", "createdByUid", "createdAt", "updatedAt"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Single message within a conversation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "senderUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "senderName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "senderRole": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "text": { "type": "string", "minLength": 1, "maxLength": 1500 },
+        "participantUids": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "senderUid", "senderName", "senderRole", "text", "participantUids", "createdAt"]
+    },
+    "StoreConfig": {
+      "title": "StoreConfig",
+      "description": "Global GIS store configuration, poster texts, hours, and payment settings",
+      "type": "object",
+      "properties": {
+        "companyName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "brandAcronym": { "type": "string", "minLength": 1, "maxLength": 20 },
+        "tagline": { "type": "string", "maxLength": 160 },
+        "location": { "type": "string", "maxLength": 400 },
+        "closingSlogan": { "type": "string", "maxLength": 200 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["companyName", "brandAcronym", "updatedAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Super Admin activity log for accountability",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "actorUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "actorName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "actorRole": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "action": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "targetLabel": { "type": "string", "maxLength": 200 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "actorUid", "actorName", "actorRole", "action", "createdAt"]
+    },
+    "PurchaseOrder": {
+      "title": "PurchaseOrder",
+      "description": "Supplier restock purchase order generated automatically or manually for low-stock products",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "code": { "type": "string", "minLength": 3, "maxLength": 40 },
+        "poleScope": { "type": "string", "enum": ["ciment", "quincaillerie", "boissons", "mixte"] },
+        "supplierName": { "type": "string", "minLength": 1, "maxLength": 140 },
+        "supplierPhone": { "type": "string", "maxLength": 40 },
+        "supplierAddress": { "type": "string", "maxLength": 240 },
+        "expectedDeliveryDate": { "type": "string", "maxLength": 20 },
+        "status": { "type": "string", "enum": ["brouillon", "envoye", "receptionne", "annule"] },
+        "totalEstimatedFcfa": { "type": "number" },
+        "notes": { "type": "string", "maxLength": 500 },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "createdByName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "staffReaderUids": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "code",
+        "poleScope",
+        "supplierName",
+        "status",
+        "totalEstimatedFcfa",
+        "createdByUid",
+        "createdByName",
+        "staffReaderUids",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PurchaseOrderLineItem": {
+      "title": "PurchaseOrderLineItem",
+      "description": "Single product line item inside a supplier purchase order subcollection",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "productId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "pole": { "type": "string", "enum": ["ciment", "quincaillerie", "boissons"] },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "unitLabel": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "currentStockAtOrder": { "type": "number" },
+        "criticalThreshold": { "type": "number" },
+        "quantity": { "type": "number" },
+        "estimatedUnitCostFcfa": { "type": "number" },
+        "lineTotalFcfa": { "type": "number" },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "staffReaderUids": { "type": "array" }
+      },
+      "required": [
+        "id",
+        "productId",
+        "pole",
+        "name",
+        "unitLabel",
+        "currentStockAtOrder",
+        "criticalThreshold",
+        "quantity",
+        "estimatedUnitCostFcfa",
+        "lineTotalFcfa",
+        "createdByUid",
+        "staffReaderUids"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Operational user profile"
+    },
+    "/users/{userId}/private/info": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "Private PII isolated from public reads"
+    },
+    "/memberInvites/{emailKey}": {
+      "schema": { "$ref": "#/entities/MemberInvite" },
+      "description": "Email-keyed worker role invitations"
+    },
+    "/members/{memberId}": {
+      "schema": { "$ref": "#/entities/Member" },
+      "description": "Employee & role registry managed by Patron and Super Admin"
+    },
+    "/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Products separated into Ciment, Quincaillerie, and Boissons poles"
+    },
+    "/invoices/{invoiceId}": {
+      "schema": { "$ref": "#/entities/Invoice" },
+      "description": "Factures and Devis documents"
+    },
+    "/invoices/{invoiceId}/items/{itemId}": {
+      "schema": { "$ref": "#/entities/InvoiceLineItem" },
+      "description": "Line items belonging to an invoice or quote"
+    },
+    "/purchaseOrders/{purchaseOrderId}": {
+      "schema": { "$ref": "#/entities/PurchaseOrder" },
+      "description": "Supplier restock purchase orders (Bons de commande fournisseurs)"
+    },
+    "/purchaseOrders/{purchaseOrderId}/items/{itemId}": {
+      "schema": { "$ref": "#/entities/PurchaseOrderLineItem" },
+      "description": "Line items belonging to a supplier purchase order"
+    },
+    "/conversations/{conversationId}": {
+      "schema": { "$ref": "#/entities/Conversation" },
+      "description": "Internal conversations between users"
+    },
+    "/conversations/{conversationId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "Messages inside a conversation"
+    },
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/StoreConfig" },
+      "description": "Global application & poster settings"
+    },
+    "/auditLogs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "System-wide activity log accessible to Super Admin"
+    }
+  }
+}

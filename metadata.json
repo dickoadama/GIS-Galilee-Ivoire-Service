@@ -1,0 +1,6 @@
+{
+  "name": "GIS — Galilée Ivoire Service",
+  "description": "Refonte graphique et vitrine interactive de l'affiche Galilée Ivoire Service : Quincaillerie et Vente de Boissons.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
