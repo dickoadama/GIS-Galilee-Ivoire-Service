@@ -18,8 +18,10 @@ import {
   X,
 } from 'lucide-react';
 import {
+  getRedirectResult,
   onAuthStateChanged,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
   User,
 } from 'firebase/auth';
@@ -96,6 +98,32 @@ const STORAGE_KEYS = {
   cart: 'gis_app_cart_v2',
   inquiries: 'gis_app_inquiries_v2',
 };
+
+function getFirebaseAuthErrorCode(error: unknown): string | undefined {
+  return typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    typeof error.code === 'string'
+    ? error.code
+    : undefined;
+}
+
+function getGoogleSignInErrorMessage(error: unknown): string {
+  const code = getFirebaseAuthErrorCode(error);
+
+  switch (code) {
+    case 'auth/unauthorized-domain':
+      return 'Domaine non autorisé dans Firebase Authentication.';
+    case 'auth/operation-not-allowed':
+      return 'La connexion Google n’est pas activée dans Firebase Authentication.';
+    case 'auth/network-request-failed':
+      return 'Connexion impossible. Vérifiez votre accès à Internet.';
+    case 'auth/popup-closed-by-user':
+      return 'Connexion Google annulée. Réessayez pour vous connecter.';
+    default:
+      return `Connexion Google impossible (${code ?? 'erreur inconnue'}).`;
+  }
+}
 
 function loadStored<T>(key: string, fallback: T): T {
   try {
@@ -347,6 +375,15 @@ export default function App() {
 
   // 1. Auth Listener & PostgreSQL Workspace Bootstrap (with offline snapshot fallback)
   useEffect(() => {
+    void getRedirectResult(auth)
+      .then((result) => {
+        if (result) showToast('Connexion réussie');
+      })
+      .catch((err: unknown) => {
+        console.error('Google Sign-In redirect error:', err);
+        showToast(getGoogleSignInErrorMessage(err));
+      });
+
     const unsub = onAuthStateChanged(auth, async (user) => {
       setFirebaseUser(user);
       setAuthReady(true);
@@ -505,8 +542,20 @@ export default function App() {
       await signInWithPopup(auth, googleProvider);
       showToast('Connexion réussie');
     } catch (err) {
+      const code = getFirebaseAuthErrorCode(err);
+      if (code === 'auth/popup-blocked') {
+        try {
+          await signInWithRedirect(auth, googleProvider);
+          return;
+        } catch (redirectError) {
+          console.error('Google Sign-In redirect error:', redirectError);
+          showToast(getGoogleSignInErrorMessage(redirectError));
+          return;
+        }
+      }
+
       console.error('Google Sign-In error:', err);
-      showToast('Connexion annulée ou bloquée par le navigateur');
+      showToast(getGoogleSignInErrorMessage(err));
     }
   };
 
